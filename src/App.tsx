@@ -1,28 +1,39 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Habit } from './types';
 import { loadHabits, saveHabits, todayDateString, generateId } from './storage';
+import DateStrip from './components/DateStrip';
 import HabitList from './components/HabitList';
 import AddHabit from './components/AddHabit';
 import StatsView from './components/StatsView';
+import BottomBar from './components/BottomBar';
 
 type View = 'habits' | 'stats';
 
-const COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#be185d', '#65a30d'];
+const COLORS = ['#6C5CE7', '#00B894', '#FDCB6E', '#E17055', '#0984E3', '#E84393', '#00CEC9', '#55E6C1'];
 
 export default function App() {
   const [habits, setHabits] = useState<Habit[]>(loadHabits);
   const [showAddForm, setShowAddForm] = useState(false);
   const [view, setView] = useState<View>('habits');
+  const [selectedDate, setSelectedDate] = useState(todayDateString());
 
   useEffect(() => {
     saveHabits(habits);
   }, [habits]);
 
-  const addHabit = useCallback((name: string, description: string) => {
+  const addHabit = useCallback((name: string, emoji: string) => {
     const color = COLORS[habits.length % COLORS.length];
     setHabits(prev => [
       ...prev,
-      { id: generateId(), name, description, color, createdAt: todayDateString(), completedDates: [] },
+      {
+        id: generateId(),
+        name,
+        emoji,
+        color,
+        createdAt: todayDateString(),
+        completedDates: [],
+        skippedDates: [],
+      },
     ]);
     setShowAddForm(false);
   }, [habits.length]);
@@ -37,6 +48,25 @@ export default function App() {
           completedDates: completed
             ? h.completedDates.filter(d => d !== date)
             : [...h.completedDates, date],
+          // Remove skip if completing
+          skippedDates: completed ? h.skippedDates : h.skippedDates.filter(d => d !== date),
+        };
+      })
+    );
+  }, []);
+
+  const skipHabit = useCallback((id: string, date: string) => {
+    setHabits(prev =>
+      prev.map(h => {
+        if (h.id !== id) return h;
+        const skipped = h.skippedDates.includes(date);
+        return {
+          ...h,
+          skippedDates: skipped
+            ? h.skippedDates.filter(d => d !== date)
+            : [...h.skippedDates, date],
+          // Remove completion if skipping
+          completedDates: skipped ? h.completedDates : h.completedDates.filter(d => d !== date),
         };
       })
     );
@@ -48,47 +78,33 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="header">
-        <h1>Habit Tracker</h1>
-        <nav className="nav">
-          <button
-            className={`nav-btn ${view === 'habits' ? 'active' : ''}`}
-            onClick={() => setView('habits')}
-          >
-            Today
-          </button>
-          <button
-            className={`nav-btn ${view === 'stats' ? 'active' : ''}`}
-            onClick={() => setView('stats')}
-          >
-            Stats
-          </button>
-        </nav>
-      </header>
-
-      <main className="main">
-        {view === 'habits' ? (
-          <>
+      {view === 'habits' ? (
+        <>
+          <header className="header">
+            <h1 className="page-title">Habits</h1>
+          </header>
+          <DateStrip selectedDate={selectedDate} onSelectDate={setSelectedDate} />
+          <main className="main">
             <HabitList
               habits={habits}
+              selectedDate={selectedDate}
               onToggle={toggleHabit}
+              onSkip={skipHabit}
               onDelete={deleteHabit}
             />
-            {showAddForm ? (
-              <AddHabit
-                onAdd={addHabit}
-                onCancel={() => setShowAddForm(false)}
-              />
-            ) : (
-              <button className="add-btn" onClick={() => setShowAddForm(true)}>
-                + New Habit
-              </button>
-            )}
-          </>
-        ) : (
+          </main>
+        </>
+      ) : (
+        <main className="main">
           <StatsView habits={habits} />
-        )}
-      </main>
+        </main>
+      )}
+
+      {showAddForm && (
+        <AddHabit onAdd={addHabit} onCancel={() => setShowAddForm(false)} />
+      )}
+
+      <BottomBar view={view} onChangeView={setView} onAdd={() => setShowAddForm(true)} />
     </div>
   );
 }

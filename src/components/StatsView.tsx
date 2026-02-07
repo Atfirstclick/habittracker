@@ -1,76 +1,150 @@
+import { useState, useMemo } from 'react';
 import { Habit } from '../types';
-import { getStreak, getLast7Days } from '../storage';
+import { getStreak, getMonthDays, getFirstDayOfWeek, todayDateString } from '../storage';
 
 interface Props {
   habits: Habit[];
 }
 
 export default function StatsView({ habits }: Props) {
-  const last7 = getLast7Days();
+  const today = new Date();
+  const [year, setYear] = useState(today.getFullYear());
+  const [month, setMonth] = useState(today.getMonth());
+  const [filterHabitId, setFilterHabitId] = useState<string>('all');
+
+  const filteredHabits = filterHabitId === 'all'
+    ? habits
+    : habits.filter(h => h.id === filterHabitId);
+
+  const bestStreak = habits.length > 0
+    ? Math.max(...habits.map(h => getStreak(h)))
+    : 0;
+
+  const todayStr = todayDateString();
+  const monthDays = getMonthDays(year, month);
+  const firstDayOffset = getFirstDayOfWeek(year, month);
+
+  const monthCompletions = useMemo(() => {
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+    return filteredHabits.reduce((sum, h) =>
+      sum + h.completedDates.filter(d => d.startsWith(monthPrefix)).length
+    , 0);
+  }, [filteredHabits, year, month]);
+
+  const totalCompletions = useMemo(() =>
+    filteredHabits.reduce((sum, h) => sum + h.completedDates.length, 0)
+  , [filteredHabits]);
+
+  // Set of dates that have at least one completion among filtered habits
+  const completedDateSet = useMemo(() => {
+    const set = new Set<string>();
+    filteredHabits.forEach(h => h.completedDates.forEach(d => set.add(d)));
+    return set;
+  }, [filteredHabits]);
+
+  // Set of dates that have at least one skip
+  const skippedDateSet = useMemo(() => {
+    const set = new Set<string>();
+    filteredHabits.forEach(h => h.skippedDates.forEach(d => set.add(d)));
+    return set;
+  }, [filteredHabits]);
+
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
+
+  const prevMonth = () => {
+    if (month === 0) { setMonth(11); setYear(y => y - 1); }
+    else setMonth(m => m - 1);
+  };
+
+  const nextMonth = () => {
+    if (month === 11) { setMonth(0); setYear(y => y + 1); }
+    else setMonth(m => m + 1);
+  };
 
   if (habits.length === 0) {
     return (
       <div className="empty-state">
+        <div className="empty-icon">📊</div>
         <p className="empty-title">No stats yet</p>
         <p className="empty-subtitle">Add habits and start completing them to see stats.</p>
       </div>
     );
   }
 
-  const totalCompletions = habits.reduce((sum, h) => sum + h.completedDates.length, 0);
-  const bestStreak = Math.max(...habits.map(h => getStreak(h)));
-  const todayCompletions = habits.filter(h =>
-    h.completedDates.includes(last7[last7.length - 1])
-  ).length;
-
-  // Weekly completion rate
-  const totalPossible = habits.length * 7;
-  const totalDone = habits.reduce((sum, h) => {
-    return sum + last7.filter(d => h.completedDates.includes(d)).length;
-  }, 0);
-  const weeklyRate = totalPossible > 0 ? Math.round((totalDone / totalPossible) * 100) : 0;
-
   return (
     <div className="stats-view">
-      <div className="stats-grid">
-        <div className="stat-card">
-          <span className="stat-value">{habits.length}</span>
-          <span className="stat-label">Total Habits</span>
+      <h2 className="stats-page-title">Statistics</h2>
+
+      <div className="filter-row">
+        <select
+          className="habit-filter"
+          value={filterHabitId}
+          onChange={e => setFilterHabitId(e.target.value)}
+        >
+          <option value="all">All habits</option>
+          {habits.map(h => (
+            <option key={h.id} value={h.id}>{h.emoji} {h.name}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="streak-banner">
+        <span className="streak-fire">🔥</span>
+        <span className="streak-num">{bestStreak}</span>
+        <span className="streak-label">Days in a row</span>
+      </div>
+
+      <div className="stats-cards">
+        <div className="stat-card dark">
+          <span className="stat-value">{monthCompletions}</span>
+          <span className="stat-label">Executed for {monthNames[month]}</span>
         </div>
-        <div className="stat-card">
-          <span className="stat-value">{todayCompletions}/{habits.length}</span>
-          <span className="stat-label">Done Today</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-value">{bestStreak}d</span>
-          <span className="stat-label">Best Streak</span>
-        </div>
-        <div className="stat-card">
-          <span className="stat-value">{weeklyRate}%</span>
-          <span className="stat-label">This Week</span>
+        <div className="stat-card dark">
+          <span className="stat-value">{totalCompletions}</span>
+          <span className="stat-label">Completed for all time</span>
         </div>
       </div>
 
-      <h2 className="section-title">Weekly Overview</h2>
-      <div className="weekly-chart">
-        {habits.map(habit => {
-          const weekDone = last7.filter(d => habit.completedDates.includes(d)).length;
-          return (
-            <div key={habit.id} className="chart-row">
-              <span className="chart-label">{habit.name}</span>
-              <div className="chart-bar-bg">
-                <div
-                  className="chart-bar-fill"
-                  style={{ width: `${(weekDone / 7) * 100}%`, backgroundColor: habit.color }}
-                />
-              </div>
-              <span className="chart-value">{weekDone}/7</span>
-            </div>
-          );
-        })}
+      <div className="calendar-section">
+        <div className="calendar-header">
+          <span className="calendar-year-month">{year} - {monthNames[month]}</span>
+          <div className="calendar-nav">
+            <button className="cal-nav-btn" onClick={prevMonth} aria-label="Previous month">&lsaquo;</button>
+            <button className="cal-nav-btn" onClick={nextMonth} aria-label="Next month">&rsaquo;</button>
+          </div>
+        </div>
+        <div className="calendar-weekdays">
+          {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+            <span key={d} className="cal-weekday">{d}</span>
+          ))}
+        </div>
+        <div className="calendar-grid">
+          {Array.from({ length: firstDayOffset }).map((_, i) => (
+            <span key={`empty-${i}`} className="cal-day empty" />
+          ))}
+          {monthDays.map(({ date, day }) => {
+            const isCompleted = completedDateSet.has(date);
+            const isSkipped = skippedDateSet.has(date);
+            const isToday = date === todayStr;
+            return (
+              <span
+                key={date}
+                className={`cal-day ${isCompleted ? 'completed' : ''} ${isSkipped && !isCompleted ? 'skipped' : ''} ${isToday ? 'today' : ''}`}
+              >
+                {isSkipped && !isCompleted ? (
+                  <svg className="cal-skip-icon" width="12" height="12" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 3v10l5-5L3 3z" fill="currentColor" />
+                    <path d="M8 3v10l5-5L8 3z" fill="currentColor" />
+                  </svg>
+                ) : (
+                  day
+                )}
+              </span>
+            );
+          })}
+        </div>
       </div>
-
-      <p className="stats-footer">Total completions across all time: {totalCompletions}</p>
     </div>
   );
 }
